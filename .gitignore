@@ -1,0 +1,13 @@
+.pio/
+.vscode/
+*.bak
+*.tmp
+.DS_Store
+build/
+Log/
+scratches/
+*.jpg
+*.zip
+.claude/
+E15-EVB02_E49-900M20S/
+Config/
