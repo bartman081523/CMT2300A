@@ -35,6 +35,7 @@
 #include <sys/time.h>    // settimeofday (Boot-Anker fuer den Feed-ts)
 #include "cmt2300a.h"
 #include "cmt2300a_config.h"
+#include "im871a_hci.h"
 
 #ifndef CMT_PIN_CSB
 #define CMT_PIN_CSB  5
@@ -581,8 +582,18 @@ void setup() {
     // bei ~170 B/s; zusammen mit dem guarded Feed-Write (drop statt block).
     Serial.setTxBufferSize(2048);
 #endif
+#if defined(CMT_HCI_IM871A) && CMT_HCI_IM871A
+    // HCI (iM871A-Emulation): der Daemon oeffnet im871a fix mit 57600 8N1.
+    // TX-Ring gross genug fuer IND-Bursts; guarded Write droppt sonst.
+    Serial.setTxBufferSize(1024);
+    Serial.begin(57600);
+#else
     Serial.begin(115200);
+#endif
     delay(200);
+#if defined(CMT_HCI_IM871A) && CMT_HCI_IM871A
+    hciSetup();   // UID aus Efuse-MAC + Parser init
+#endif
 #if defined(CMT_WMBUS_FEED) && CMT_WMBUS_FEED
     // Runde 79: der rtlwmbus-Feed braucht einen strptime-faehigen ts
     // (%Y-%m-%d %H:%M:%S). ESP32 ohne RTC/NTP startet bei 1970 — Anker
@@ -972,6 +983,9 @@ void loop() {
 #endif
 #if !(defined(CMT_STM8_ONLY) && CMT_STM8_ONLY)
     pollRx();
+#if defined(CMT_HCI_IM871A) && CMT_HCI_IM871A
+    hciPoll();   // Boot-Phase (vor dem ersten SWFRAM-Fenster) bedienen
+#endif
 #if defined(CMT_TX_TEST) && CMT_TX_TEST
     // TX-Beacon: 2 s Takt ueber FCSB=g5 mit dem Dev-Patch (TT_DEM). Das
     // Urteil faellt der Watchdog-Log (Beacon-ID 01234567 dekodiert?).
@@ -1027,7 +1041,9 @@ void loop() {
         // 0x55xx Bits TX-Preamble-Size war der [TX diag]-Anomalie-Kandidat.
         radio.writeReg(0x43, 0x3D);
         radio.writeReg(0x44, 0x54);
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
         Serial.println(F("[POL] Konvention A fix (sync=543D)"));
+#endif
         // (REP-BIT-Flip und RX-Sweep entfernt 2026-09-02: der Flip toggelt die
         // Demod-Polarität (0x1F Bit4) je Heartbeat — unter dem SWFRAM-Test
         // lief die Hälfte der Fenster mit falscher Polarität; der Sweep
@@ -1986,6 +2002,10 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
             static uint8_t rssiHist[48]; static uint8_t rssiIdx = 0;
             memset(rssiHist, 0, sizeof(rssiHist)); rssiIdx = 0;
             while (millis() - tw < 25000) {
+#if defined(CMT_HCI_IM871A) && CMT_HCI_IM871A
+                hciPoll();                    // Daemon-Requests auch mid-window bedienen
+                if (hciWindowAbort()) break;  // TX-Request: Fenster sofort beenden
+#endif
                 int f6 = (uint8_t)radio.readReg(0x6F);
                 rssiHist[rssiIdx++ & 47] = (uint8_t)f6;
                 if (f6 > rssiHi) rssiHi = f6;
@@ -2115,6 +2135,7 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                     const uint8_t *frame = asmBuf;
                     asmActive = false;
                     nFrames++;
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
                     if (sv.dump) {   // Runde 33: RAW-Sichtbarkeit auch ohne CRC-Treffer
                         // Runde 45b: Register-Readback je Frame — griff die
                         // Payload-Schreibung (0x46=0x49)? Datasheet Table 21:
@@ -2140,6 +2161,7 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                         for (uint8_t j = 0; j < pktLen; j++) Serial.printf(" %02X", frame[j]);
                         Serial.println();
                     }
+#endif  // sv.dump [RAW] (HCI: Print-Gate)
                     radio.writeReg(CMT_REG_CTL1_IO_SEL,
                                    radio.readReg(CMT_REG_CTL1_IO_SEL) & ~0x05);  // GoFIFO READ
                     radio.writeReg(CMT_REG_CTL2_FIFO_FLAG, 0x02);  // RX-FIFO clear
@@ -2292,12 +2314,14 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                                         }
                                     }
                                 }
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
                                 if (b2ok)
                                     Serial.printf("[OMS-REPAIR %s] A=%02X%02X%02X%02X cls=%s bit=%u blk@%u vr=%u tlen=%u\n",
                                                   sv.name, t[4], t[5], t[6], t[7],
                                                   repCls == 0 ? "flip" : repCls == 1 ? "ins" : "drop",
                                                   (unsigned)(failPos * 8 + repP), (unsigned)failPos,
                                                   repVr, (unsigned)tlen);
+#endif
                             }
                         }
                         // Runde 86 (2026-09-12): Kombiniert-Op-Repair fuer die
@@ -2378,16 +2402,24 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                                         }
                                     }
                                 }
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
                                 if (b2ok)
                                     Serial.printf("[OMS-REPAIR2 %s] A=%02X%02X%02X%02X cls=%s bit=%u q=%u blk@%u vr=%u tlen=%u\n",
                                                   sv.name, t[4], t[5], t[6], t[7],
                                                   repCls == 1 ? "ins+flip" : "drop+flip",
                                                   (unsigned)(failPos * 8 + repP), (unsigned)repQ,
                                                   (unsigned)failPos, repVr, (unsigned)tlen);
+#endif
                             }
                         }
 #endif
                         if (b2ok) nB2ok++;
+#if defined(CMT_HCI_IM871A) && CMT_HCI_IM871A
+                        // HCI-IND: jede CRC-OK-Frame (BOK/BOKA/RPR-Verdict)
+                        // als binaere IND an den Daemon (Feed-Block oben ist
+                        // im HCI-Env aus; gleiche CRC-less-Bauanleitung).
+                        hciIndSend(frame, pktLen, i, rssiHi, annex, failPos);
+#endif
 #if defined(CMT_WMBUS_FEED) && CMT_WMBUS_FEED
                         // Runde 79 (2026-09-07): rtlwmbus-Feed (r74 offline
                         // bewiesen: 79/79-Dekodierung via stdin:rtlwmbus).
@@ -2454,6 +2486,7 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                                 Serial.write((const uint8_t *)ln, p - ln);
                         }
 #endif
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
                         Serial.printf("[OMS-C CRC-OK %s] L=%u C=0x%02X M=%02X%02X A=%02X%02X%02X%02X V=0x%02X T=0x%02X %s RSSI=%d off=%u:",
                                       sv.name, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7],
                                       t[8], t[9], b2, rssiHi, i);
@@ -2462,6 +2495,7 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                         for (uint8_t j = 0; j < 48; j++)
                             Serial.printf(" %02X", rssiHist[(uint8_t)(rssiIdx - 48 + j)]);
                         Serial.println();
+#endif
                         // Runde 31: Cross-Burst-Assembly — die Telegramm-
                         // Wiederholungen je Burst byte-weis verschmelzen,
                         // Konfliktstellen per CRC2-Bruteforce arbitrieren.
@@ -2472,6 +2506,7 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                     }
                 }
             }
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
             Serial.printf("[SWFRAM %s] frames=%lu crcOK=%lu false=%lu B2=%lu annex=%lu rep=%lu/%lu(f=%lu,i=%lu,d=%lu) asm=%lu sync=%lu burstMs=%lu rssiHi=%d drains=%lu\n",
                           sv.name, (unsigned long)nFrames, (unsigned long)nCrcOk,
                           (unsigned long)nFalse, (unsigned long)nB2ok,
@@ -2481,6 +2516,7 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                           (unsigned long)nAsm,
                           (unsigned long)nSync, (unsigned long)nBurstWin, rssiHi,
                           (unsigned long)nDrain);
+#endif
             radio.goStandby();
             radio.writeReg(0x30, p30);
             radio.writeReg(0x32, p32);
@@ -2604,6 +2640,9 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
         int nHi = 0;
         uint32_t spikeMs[12]; int8_t spikeVal[12];
         while (millis() - t0 < 1000) {   // Runde 38: 5s->1s (Deadtime 17%->4%)
+#if defined(CMT_HCI_IM871A) && CMT_HCI_IM871A
+            hciPoll();                   // Blind-Luecke zwischen den Fenstern abdecken
+#endif
             int f = (uint8_t)radio.readReg(0x6F);
             if (f < min6f) min6f = f;
             if (f > max6f) max6f = f;
@@ -2612,6 +2651,7 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
             delay(1);
         }
         minRssi = min6f; maxRssi = max6f;
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
         Serial.printf("[RSSI-SPIKE] 0x6F raw %d..%d | n>60: %d", min6f, max6f, nHi);
         for (int i = 0; i < nHi; i++)
             Serial.printf(" [%lu.%02d %d]", (unsigned long)spikeMs[i] % 100000, (int)(spikeMs[i] % 100), spikeVal[i]);
@@ -2620,12 +2660,16 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
                       "(PREAM=%d SYNC=%d PKT=%d)\n",
                       minRssi, maxRssi, irqAcc,
                       (irqAcc >> 12) & 1, (irqAcc >> 11) & 1, (irqAcc >> 8) & 1);
+#endif
         radio.clearIntFlagHi(0xFF);
         radio.clearIntFlagLo(0xFF);
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
         // TX beacon: a valid Mode-C format-A frame (L/C/M/A + CRC verified)
         // with our sync (0x543D) prepended by the chip's TX path. The SDR
         // watches for it - this verifies the whole RF chain independently
         // of the RX config.
+        // HCI: AUS — der Daemon steuert TX selbst; der 10-s-Beacon waere ein
+        // Fremd-Telegramm im Daemon-Strom (A-ID 01234567 = lse_01234567).
         static uint8_t beacon[31];      // FIFO fuellt 31 B (Fix-Length-Modus 0x46=0x1F)
         beacon[0] = 0x54; beacon[1] = 0xCD;
         beacon[2] = 0x0A; beacon[3] = 0x44;
@@ -2763,16 +2807,19 @@ static const uint8_t kT1DataRate[24] PROGMEM = {
         radio.writeReg(0x45, rxP45);
         radio.writeReg(0x46, rxP46);
         radio.writeReg(0x3C, rxP3C);
+#endif  // Beacon-Gate (HCI: Daemon-TX ersetzt den Produktiv-Beacon)
         // RX probe: command RX explicitly and read the raw state while there.
         radio.goRx();
         delay(30);
         uint8_t st = radio.readReg(CMT_REG_CTL1_MODE_STA);
         uint16_t irq = radio.readIntFlag();
+#if !(defined(CMT_HCI_IM871A) && CMT_HCI_IM871A)
         Serial.printf("[HB %lus] probe state=0x%02X rssi(min..max)=%d..%d irq=0x%04X "
                       "(PREAM=%d SYNC=%d PKT=%d) pkts=%lu\n",
                       (unsigned long)(millis() / 1000), st, g_rssiMin, g_rssiMax, irq,
                       (irq >> 12) & 1, (irq >> 11) & 1, (irq >> 8) & 1,
                       (unsigned long)g_pktCount);
+#endif
         g_rssiMin = 999; g_rssiMax = -999;
         radio.clearIntFlagHi(0xFF);
         radio.clearIntFlagLo(0xFF);
