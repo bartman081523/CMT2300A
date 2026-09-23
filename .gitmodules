@@ -1,0 +1,6 @@
+[submodule "tools/stm8flash"]
+	path = tools/stm8flash
+	url = https://github.com/vdudouyt/stm8flash.git
+[submodule "tools/stm8gal"]
+	path = tools/stm8gal
+	url = https://github.com/gicking/stm8gal.git
