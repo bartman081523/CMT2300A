@@ -39,7 +39,7 @@ real hardware (see Testing).
 | CMT2300A datasheet Rev 1.7 (Jul 2023), PDF in repo root | Register-level reference; several register behaviours diverge on the E49 silicon — the EBYTE reference code wins (see README "What the EBYTE reference taught us") |
 | EBYTE `ebyte_e49x.c` demo code | Authoritative register layout used by the driver. Vendored copy lives in a **gitignored** local dir (`E15-EVB02_E49-900M20S/`), not in the repo |
 | CMOSTEK app notes AN142 (quick start), AN143 (FIFO), AN144 (RSSI), AN197 (frequency hopping) | Referenced in README.md "Key references" |
-| EN 13757 / OMS wireless M-Bus | The wire format the production firmware receives and transmits: DLL/TPL frames, block-CRC chain (used by the repair engine, `platformio.ini:77-80`), CRC-less annex frames |
+| EN 13757 / OMS wireless M-Bus | The wire format the production firmware receives and transmits: DLL/TPL frames, block-CRC chain (used by the repair engine, `platformio.ini:80`), CRC-less annex frames |
 | wmbusmeters (upstream source, local build tree) — `wmbus_im871a.cc`, `crc16.cc`, `wmbus.cc` | Authoritative for the iM871A HCI protocol the shim must reproduce: detect sequence (~`wmbus_im871a.cc:1189-1265`), frame parser `checkIM871AFrame`, CRC16 init 0xFFFF / poly 0x8408 LSB-first, permanent tty-ignore on detect failure (`wmbus.cc` "Ignoring tty") |
 | IMST iM871A user manual (HCI) | Secondary reference for the emulated dongle; where manual and wmbusmeters source disagree, the wmbusmeters source decides (it is the consumer) |
 | `tools/rfpdk-exp-format.md` | Format of the RFPDK register exports used to derive `include/cmt2300a_config.h` maps (`include/cmt2300a_config.h:92`) |
@@ -152,7 +152,7 @@ One class + one protocol module, orchestrated by `main.cpp`:
 - **Bit-repair engine** (`CMT_WMBUS_REPAIR=1`): per-block bit repair of
   BBAD frames (flip/insert/drop) verified via the EN 13757 block-CRC
   chain; repaired frames are BOK-gated into the feed
-  (`platformio.ini:77-80`).
+  (`platformio.ini:80`).
 - **BOK feed** (`CMT_WMBUS_FEED=1`): CRC-ok frames as ASCII
   `C1;1;1;<ts>;<rssi>;0;0x<hex>` lines on the UART — the
   wmbusmeters-`checkRTLWMBUSFrame` grammar, consumed by the production
@@ -249,7 +249,7 @@ None: no `.github/`, `.gitlab-ci.yml`, `tox.ini` or equivalent exists
   classic ESP32 (SCK 18, SDIO via MISO/MOSI 19+23, CSB 5, FCSB 17,
   INT1 4, INT2 16 — README pin table) vs ESP32-S3 on the E49 dongle
   header (SCK 7, SDIO 6, CSB 4, FCSB 5, INT1 15, INT2 16, NRST 8 —
-  sniffed wiring, `platformio.ini:136-144`). Defaults live in
+  sniffed wiring, `platformio.ini:135-144`). Defaults live in
   `include/cmt2300a_pins.h`; pass `0xFF` for a pin to skip it (e.g. RST).
   Wiring details incl. the resistor-free direct connection:
   `docs/wiring-wmbusmeters.md`.
