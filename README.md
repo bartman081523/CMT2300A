@@ -30,6 +30,19 @@ generic packet radio you can experiment with at will.
 - A small web UI (when `CMT2300A_USE_WEBUI=1`) for ad-hoc transmit and
   receive.
 
+### Firmware modes (PlatformIO envs)
+
+| env | Mode | What it does |
+|-----|------|--------------|
+| `esp32dev` | Experiment / WebUI | WiFi AP (`CMT2300A-Demo`) with a form for payload / frequency / power / channel; status panel with RSSI, chip state, VCO bank; arbitrary 127–1020 MHz tuning (~25 Hz resolution). |
+| `esp32s3` | wM-Bus production | OMS T1/C1 receive profile at 868.95 MHz with hardware sync/length/CRC; polled RX windows with RSSI histogram; per-block bit repair validated by the EN 13757 block-CRC chain; BOK-gated ASCII feed (`C1;1;1;<ts>;<rssi>;0;0x<hex>`) for the production wmbusmeters stdin pipeline; CRC-less annex frames accepted; 2-second TX beacon with a per-transmit sequence number. |
+| `im871a` | iM871A dongle emulation | Emulates an IMST iM871A USB dongle on the board's serial port (57600 8N1): wmbusmeters connects with `device=/dev/ttyACM0:im871a[<uid>]` and gets native RX indications (CRC-clean frames only) and TX support — no daemon patching. |
+
+The full capability detail (driver internals, HCI protocol facts, detect
+gates, feature flags per env) lives in
+[docs/agents/project-specs.md](docs/agents/project-specs.md); the wiring
+for the dongle path in [docs/wiring-wmbusmeters.md](docs/wiring-wmbusmeters.md).
+
 ## Hardware
 
 This project targets the **E49-900MBL-01** testboard kit from EBYTE
@@ -123,6 +136,24 @@ machine, GPIO routing, interrupt sources, FIFO merge) itself.
 - AN143 – CMT2300A FIFO and Data Packet Usage Guideline.
 - AN144 – CMT2300A RSSI Usage Guideline.
 - AN197 – CMT2300A frequency hopping calculation tool.
+
+## Documentation
+
+- **Agent guidance**: [AGENTS.md](AGENTS.md) routes to
+  [docs/agents/project-specs.md](docs/agents/project-specs.md)
+  (specs, build, conventions) with
+  [research.md](docs/agents/research.md) and
+  [devmind.md](docs/agents/devmind.md).
+- **Architecture decisions**: [docs/adr/](docs/adr/) — start at
+  [0001](docs/adr/0001-adr-process.md); the register-divergence policy is
+  [ADR 0005](docs/adr/0005-ebyte-register-layout-wins.md).
+- **Architecture diagrams**: [docs/architecture/](docs/architecture/) —
+  system context, HCI handshake, RX data flow, module graph.
+- **Wiring**: E49 → ESP32-S3 for wmbusmeters:
+  [docs/wiring-wmbusmeters.md](docs/wiring-wmbusmeters.md) ·
+  E49-900MBL-01 dongle / STM8 two-phase plan:
+  [wiring-ESP32.md](wiring-ESP32.md) · dongle board anatomy:
+  [Board-Description.md](Board-Description.md).
 
 ## Known limitations
 
